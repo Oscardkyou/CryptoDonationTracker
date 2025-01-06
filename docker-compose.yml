@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # Blockchain (Ganache)
+  ganache:
+    container_name: charity-ganache
+    image: trufflesuite/ganache:latest
+    ports:
+      - "8545:8545"
+    command: >
+      --server.host 0.0.0.0
+      --chain.networkId 1337
+      --chain.chainId 1337
+      --wallet.totalAccounts 10
+      --wallet.defaultBalance 1000
+      --miner.blockTime 0
+    networks:
+      - blockchain-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8545"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend (Flask)
+  backend:
+    container_name: charity-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5000"
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - WEB3_PROVIDER=http://ganache:8545
+      - DATABASE_URL=sqlite:///charity.db
+    volumes:
+      - ./backend:/app
+    depends_on:
+      ganache:
+        condition: service_healthy
+    networks:
+      - blockchain-network
+      - backend-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5000"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Frontend (Next.js)
+  frontend:
+    container_name: charity-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5001
+      - NEXT_PUBLIC_WEB3_PROVIDER=http://localhost:8545
+      - NODE_ENV=development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - backend-network
+    command: sh -c "npm run dev -- -p 3000 --hostname 0.0.0.0"
+
+networks:
+  blockchain-network:
+    name: charity-blockchain
+  backend-network:
+    name: charity-backend
